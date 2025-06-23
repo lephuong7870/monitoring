@@ -1,0 +1,57 @@
+
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nifi-group-ids-cm
+  namespace: nifi
+data:
+  group_ids: '[  "ddcb79b2-d5b3-3a72-b710-a1e6ce85193f" , "c3b7a254-da30-3abb-9c85-b231c483c398" ] '
+  nifi_svc: "nifi-http.nifi.svc.cluster.local"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prom-exporter
+  namespace: nifi
+  labels:
+    app: exporter
+spec:
+  selector:
+    matchLabels:
+      app: exporter
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: exporter
+    spec:
+      containers:
+        - image: 19133046/nifi-export
+          name: exporter
+          imagePullPolicy: Always
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "100m"
+            limits:
+              memory: "2Gi"
+              cpu: "200m"
+          ports:
+            - name: nifi-metrics
+              containerPort: 8000
+          env:
+          - name: GROUP_IDS
+            valueFrom:
+              configMapKeyRef:
+                name: nifi-group-ids-cm
+                key: group_ids
+          - name: NIFI_SVC
+            valueFrom:
+              configMapKeyRef:
+                name: nifi-group-ids-cm
+                key: nifi_svc
+      restartPolicy: Always  
+
+---

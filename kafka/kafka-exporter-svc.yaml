@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-jmx-svc
+  namespace: kafka
+  labels:
+    app.kubernetes.io/instance:	kafka-exporter
+    app.kubernetes.io/name: kafka-exporter
+spec:
+  type: ClusterIP
+  ports:
+  - name: kafka-jmx 
+    port: 7071
+    targetPort: 7071
+    protocol: TCP
+  selector:
+    name: kafka

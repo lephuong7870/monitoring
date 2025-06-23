@@ -1,0 +1,72 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zookeeper-svc
+  namespace: zookeeper 
+  labels:
+    app: zookeeper
+spec:
+  type: ClusterIP
+  selector:
+    app: zookeeper
+  ports:
+  - protocol: TCP
+    port: 2182
+    targetPort: 2182
+    name: client
+  - protocol: TCP
+    port: 2887
+    targetPort: 2887
+    name: server
+  - protocol: TCP
+    port: 3887
+    targetPort: 3887
+    name: leader-election
+  type: ClusterIP
+  selector:
+    app: zookeeper
+
+
+
+---
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: zookeeper
+  namespace: zookeeper 
+spec:
+  serviceName: zookeeper-svc
+  replicas: 1
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: zookeeper
+  template:
+    metadata:
+      labels:
+        app: zookeeper
+    spec:
+      containers:
+      - name: zookeeper
+        image: bitnami/zookeeper:3.7.0
+        imagePullPolicy: Always
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "0.5"
+        ports:
+        - containerPort: 2181
+          name: client
+        - containerPort: 2888
+          name: server
+        - containerPort: 3888
+          name: leader-election
+        env:
+          - name: ZOOKEEPER_CLIENT_PORT
+            value: "2181"
+          - name: ALLOW_ANONYMOUS_LOGIN
+            value: "yes"
+---

@@ -1,0 +1,143 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka
+  namespace: kafka 
+  labels:
+    name: kafka
+spec:
+  type: ClusterIP
+  selector:
+      name: kafka
+  ports:
+  - name: kafka-internal
+    port: 9092
+    targetPort: 9092
+  - name: kafka-external
+    port: 9093
+    targetPort: 9093
+
+
+
+---
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka
+  namespace: kafka 
+  labels:
+    name: kafka
+spec:
+  podManagementPolicy: "Parallel"
+  replicas: 3
+  selector:
+    matchLabels:
+      name: kafka
+  serviceName: kafka
+  template:
+    metadata:
+      labels:
+        name: kafka
+    spec:
+      initContainers:
+      - name: install-kafka-exporter
+        image: busybox:1.33
+        command:
+          - sh
+          - -c
+          - >
+             if [[ -n "${EXPORTER_JAR_URL}" ]]; then
+                echo "Pulling prometheus kafka exporter and its configuration ..."
+                wget -O /kafka/jmx_prometheus_javaagent.jar "${EXPORTER_JAR_URL}"
+             fi
+        env:
+        - name: EXPORTER_JAR_URL
+          valueFrom:
+            configMapKeyRef:
+              name: kafka-jmx-exporter-cm
+              key: kafka-exporter-url
+              optional: true
+        volumeMounts:
+        - mountPath: /kafka 
+          name: kafka-pvc
+      containers:
+      - name: kafka
+        image: docker.io/bitnami/kafka:3.3
+        ports:
+        - name: kafka-internal
+          containerPort: 9092
+        - name: kafka-external
+          containerPort: 9093
+        - name: kafka-jmx 
+          containerPort: 7071
+        env:
+        - name: MY_POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: MY_POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+
+        - name: ALLOW_PLAINTEXT_LISTENER
+          value: "yes"
+        - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+          value: INCLUSTER:PLAINTEXT
+        - name: KAFKA_CFG_LISTENERS
+          value: INCLUSTER://:9092
+        - name: KAFKA_CFG_ADVERTISED_LISTENERS
+          value: INCLUSTER://$(MY_POD_NAME).kafka.kafka.svc.cluster.local:9092
+        - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+          value: INCLUSTER:PLAINTEXT,EXTERNAL:PLAINTEXT
+        - name: KAFKA_CFG_LISTENERS
+          value: INCLUSTER://:9092,EXTERNAL://:9093
+        - name: KAFKA_CFG_ADVERTISED_LISTENERS
+          value: INCLUSTER://$(MY_POD_NAME).kafka.kafka.svc.cluster.local:9092
+        - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
+          value: INCLUSTER
+        - name: KAFKA_ENABLE_KRAFT
+          value: "no"
+        - name: KAFKA_CFG_ZOOKEEPER_CONNECT
+          value: zookeeper-svc:2181
+        - name: KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE
+          value: "false"
+          name: EXTRA_ARGS
+          value: "-javaagent:/kafka/jmx_prometheus_javaagent.jar=7071:/opt/jmx_exporter/export.yaml"
+        volumeMounts:
+        - mountPath: /kafka
+          name: kafka-pvc
+        - mountPath: /opt/jmx_exporter
+          name: jmx-exporter-config
+      volumes:
+      - name: jmx-exporter-config 
+        configMap: 
+          name: kafka-jmx-exporter-cm
+
+  volumeClaimTemplates:
+  - metadata:
+      name: kafka-pvc 
+    spec:
+      accessModes:
+        - ReadWriteOnce
+      resources:
+        requests:
+          storage: 1Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kafka-pvc
+  namespace: kafka 
+  labels:
+    name: kafka-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+
+--- 

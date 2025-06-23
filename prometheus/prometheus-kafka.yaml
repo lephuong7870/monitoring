@@ -1,0 +1,47 @@
+
+
+
+apiVersion: monitoring.coreos.com/v1
+kind: Prometheus
+metadata:
+  name: prometheus-kafka
+  namespace: monitoring
+  labels:
+    name: prometheus
+spec:
+
+  replicas: 1
+  serviceAccountName: prometheus
+  serviceMonitorSelector:
+    matchLabels:
+      release: prometheus
+      prometheus.io/scrape: "true"
+      #app: exporter 
+  ruleSelector:
+    matchLabels:
+      release: prometheus
+      prometheus.io/scrape: "true"
+      #app: exporter 
+  serviceAccountName: prometheus
+  resources:
+    requests:
+      cpu: 100m
+      memory: 4Gi
+    limits:
+      cpu: 500m
+      memory: 4Gi
+  enableAdminAPI: false
+  storage:
+    volumeClaimTemplate:
+      spec:
+        resources:
+          requests:
+            storage: 4Gi
+  securityContext:
+    fsGroup: 0
+    runAsNonRoot: false
+    runAsUser: 0
+  retention: 7d
+  scrapeInterval: 30s
+---
+

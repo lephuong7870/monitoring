@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nifi-group-ids-cm
+  namespace: nifi
+data:
+  group_ids: '[ "714ee999-0c55-3392-b3d8-ad1c212314a3" ]'
+  
+ 

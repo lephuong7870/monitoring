@@ -1,0 +1,261 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: nifi-http
+  namespace: nifi
+spec:
+  type: ClusterIP
+  selector:
+    app: nifi
+  ports:
+    - protocol: TCP
+      port: 8080
+      targetPort: 8080
+      name: nifi-ui
+      
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nifi-service
+  namespace: nifi
+spec:
+  selector:
+    app: nifi 
+  ports:
+    - protocol: TCP
+      port: 8443
+      targetPort: 8443
+      name: https
+  type: ClusterIP 
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: nifi-exporter-service
+  namespace: nifi
+  labels:
+    app: exporter
+spec:
+  type: ClusterIP
+  ports:
+    - name: nifi-metrics
+      port: 8000  
+      targetPort: 8000  
+      protocol: TCP
+  selector:
+    app: exporter 
+
+
+
+
+
+---
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nifi
+  namespace: nifi
+  labels:
+    name: nifi
+    app: nifi
+spec:
+  revisionHistoryLimit: 1
+  serviceName: nifi
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app: nifi
+  template:
+    metadata:
+      labels:
+        app: nifi
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      setHostnameAsFQDN: true
+      dnsPolicy: ClusterFirstWithHostNet
+      restartPolicy: Always
+      securityContext:
+        runAsGroup: 1000
+        runAsUser: 1000
+        runAsNonRoot: false
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nifi
+          image: apache/nifi:1.14.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+            - containerPort: 11443
+              name: cluster
+            - containerPort: 8443
+              name: https
+            - containerPort: 6342
+              name: cluster-lb
+            - containerPort: 8787
+              name: nifi-monitor
+            - containerPort: 8989
+              name: request
+          env:
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP 
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name 
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace 
+            - name: NIFI_UI_BANNER_TEXT
+              value: $(POD_NAME) 
+            - name: NIFI_WEB_HTTPS_HOST
+              value: $(POD_NAME).nifi.$(POD_NAMESPACE).svc.cluster.local 
+            - name: NIFI_CLUSTER_NODE_ADDRESS
+              value: $(POD_NAME).nifi.$(POD_NAMESPACE).svc.cluster.local 
+            - name: NIFI_REMOTE_INPUT_SOCKET_HOST
+              value: $(POD_NAME).nifi.$(POD_NAMESPACE).svc.cluster.local 
+            - name: NIFI_REMOTE_INPUT_HOST
+              value: $(POD_NAME).nifi.$(POD_NAMESPACE).svc.cluster.local 
+            - name: HOSTNAME
+              value: $(POD_IP) 
+            - name: NODE_IDENTITY
+              value: $(POD_NAME) 
+
+          envFrom:
+            - configMapRef:
+                name: nifi-cm
+                optional: false
+          volumeMounts:
+            - name: data
+              mountPath: /opt/nifi/nifi-current/data
+              subPath: data
+              readOnly: false
+            - name: data
+              mountPath: /opt/nifi/nifi-current/keytool
+              subPath: keytool
+              readOnly: false
+            - name: scripts
+              mountPath: /scripts/security.sh
+              subPath: security.sh
+              readOnly: false
+          lifecycle:
+            postStart:
+              exec:
+                command:
+                  - /scripts/security.sh
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: 3Gi
+        - name: scripts
+          configMap:
+            name: nifi-ssl-cm
+            optional: false
+            defaultMode: 0755
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nifi-ssl-cm
+  namespace: nifi
+data:
+  security.sh: |
+    #!/bin/bash
+    set -ex -o allexport
+
+    ORGANISATION_UNIT=${ORGANISATION_UNIT:-'Cloud Services Application'}
+    ORGANISATION=${ORGANISATION:-'Cloud Services'}
+    PUBLIC_DNS=${POD_NAME:-'nifi.tld'}
+    CITY=${CITY:-'London'}
+    STATE=${STATE:-'London'}
+    COUNTRY_CODE=${COUNTRY_CODE:-'GB'}
+    KEY_PASS=${KEY_PASS:-$KEYSTORE_PASS}
+    KEYSTORE_PASS=${KEYSTORE_PASS:-$NIFI_SENSITIVE_PROPS_KEY}
+    KEYSTORE_PASSWORD=${KEYSTORE_PASSWORD:-$NIFI_SENSITIVE_PROPS_KEY}
+    KEYSTORE_PATH=${NIFI_HOME}/keytool/keystore.p12
+    KEYSTORE_TYPE=jks
+    TRUSTSTORE_PASS=${TRUSTSTORE_PASS:-$NIFI_SENSITIVE_PROPS_KEY}
+    TRUSTSTORE_PASSWORD=${TRUSTSTORE_PASSWORD:-$NIFI_SENSITIVE_PROPS_KEY}
+    TRUSTSTORE_PATH=${NIFI_HOME}/keytool/truststore.jks
+    TRUSTSTORE_TYPE=jks
+
+    if [[ ! -f "${NIFI_HOME}/keytool/keystore.p12" ]]
+    then
+      echo "Creating keystore"
+      keytool -genkey -noprompt -alias nifi-keystore \
+      -dname "CN=${POD_NAME},OU=${ORGANISATION_UNIT},O=${ORGANISATION},L=${CITY},S=${STATE},C=${COUNTRY_CODE}" \
+      -keystore ${NIFI_HOME}/keytool/keystore.p12 \
+      -storepass ${KEYSTORE_PASS:-$NIFI_SENSITIVE_PROPS_KEY} \
+      -KeySize 2048 \
+      -keypass "${KEY_PASS:-$NIFI_SENSITIVE_PROPS_KEY}" \
+      -keyalg RSA \
+      -storetype pkcs12
+    fi
+
+    if [[ ! -f "${NIFI_HOME}/keytool/truststore.jks" ]]
+    then
+      echo "Creating truststore"
+      keytool -genkey -noprompt -alias nifi-truststore \
+      -dname "CN=${POD_NAME},OU=${ORGANISATION_UNIT},O=${ORGANISATION},L=${CITY},S=${STATE},C=${COUNTRY_CODE}" \
+      -keystore ${NIFI_HOME}/keytool/truststore.jks \
+      -storetype jks \
+      -keypass ${KEYSTORE_PASS:-$NIFI_SENSITIVE_PROPS_KEY} \
+      -storepass ${KEY_PASS:-$NIFI_SENSITIVE_PROPS_KEY} \
+      -KeySize 2048
+    fi
+
+    #/usr/bin/bash ${NIFI_HOME}/../scripts/secure.sh 
+    #eval ${NIFI_HOME}/../scripts/secure.sh 
+
+---
+
+
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nifi-cm
+  namespace: nifi
+data:
+  JAVA_OPTS: "-XX:UseAVX=0 -Djavax.net.debug=ssl,handshake"
+  KEYSTORE_PASSWORD: "th1s1s3up34e5r37"
+  KEYSTORE_PATH: "${NIFI_HOME}/keytool/keystore.p12"
+  KEYSTORE_TYPE: "PKCS12"
+  NIFI_ANALYTICS_PREDICT_ENABLED: "true"
+  NIFI_CLUSTER_IS_NODE: "true"
+  NIFI_CLUSTER_LOAD_BALANCE_HOST: "nifi.sona"
+  NIFI_CLUSTER_NODE_CONNECTION_TIMEOUT: "5 min"
+  NIFI_CLUSTER_NODE_EVENT_HISTORY_SIZE: "25"
+  NIFI_CLUSTER_NODE_LOAD_BALANCE_PORT: "6342"
+  NIFI_CLUSTER_NODE_PROTOCOL_MAX_THREADS: "20"
+  NIFI_CLUSTER_NODE_PROTOCOL_PORT: "11443"
+  NIFI_CLUSTER_NODE_PROTOCOL_THREADS: "10"
+  NIFI_CLUSTER_NODE_READ_TIMEOUT: "5 min"
+  NIFI_CLUSTER_PROTOCOL_CONNECTION_HANDSHAKE_TIMEOUT: "3 min"
+  NIFI_CLUSTER_PROTOCOL_HEARTBEAT_INTERVAL: "2 min"
+  NIFI_CLUSTER_PROTOCOL_IS_SECURE: "true"
+  NIFI_ELECTION_MAX_CANDIDATES: "1"
+  NIFI_ELECTION_MAX_WAIT: "2 min"
+  NIFI_JVM_HEAP_INIT: "2g"
+  NIFI_JVM_HEAP_MAX: "2g"
+  NIFI_SECURITY_AUTORELOAD_ENABLED: "true"
+  NIFI_SECURITY_AUTORELOAD_INTERVAL: "5 min"
+  NIFI_SECURITY_NEEDCLIENTAUTH: "true"
+  NIFI_SENSITIVE_PROPS_KEY_PROTECTED: "th1s1s3up34e5r37"
+  NIFI_SENSITIVE_PROPS_KEY: "th1s1s3up34e5r37"
+  NIFI_WEB_HTTP_PORT: "8080"
+  NIFI_WEB_HTTPS_PORT: "8443"
+  NIFI_ELECTION_MAX_WAIT: "30 sec"
+  NIFI_ZK_CONNECT_STRING: "zookeeper-svc.kafka.svc.cluster.local:2181"
+  TRUSTSTORE_PASSWORD: "th1s1s3up34e5r37"
+  TRUSTSTORE_PATH: "${NIFI_HOME}/keytool/truststore.jks"
+  TRUSTSTORE_TYPE: "jks"
