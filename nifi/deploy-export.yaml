@@ -7,8 +7,8 @@ metadata:
   namespace: nifi
 data:
   group_ids: '[  "ddcb79b2-d5b3-3a72-b710-a1e6ce85193f" , "c3b7a254-da30-3abb-9c85-b231c483c398" ] '
-  nifi_svc: "nifi-http.nifi.svc.cluster.local"
-
+  nifi_url_api: "http://nifi-http.nifi.svc.cluster.local:8080"
+  
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -47,11 +47,11 @@ spec:
               configMapKeyRef:
                 name: nifi-group-ids-cm
                 key: group_ids
-          - name: NIFI_SVC
+          - name: NIFI_URL_API
             valueFrom:
               configMapKeyRef:
                 name: nifi-group-ids-cm
-                key: nifi_svc
+                key: nifi_url_api
       restartPolicy: Always  
 
 ---
