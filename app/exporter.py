@@ -42,7 +42,7 @@ nifi_error_count  = Gauge( 'nifi_error_count' , 'NiFi Error Count Metric' , [ 'g
 
 
 def initial():
-    nifi_svc   = os.environ.get("NIFI_SVC")
+    nifi_url_api  = os.environ.get("NIFI_URL_API")
     group_ids  =   os.environ.get("GROUP_IDS")
     try:
         group_ids = json.loads( group_ids) 
@@ -51,7 +51,7 @@ def initial():
 
 
     ## Logging ##Number 1
-    nifi_cluster_urls = [f'http://{nifi_svc}:8080/nifi-api/controller/cluster']
+    nifi_cluster_urls = [f'{nifi_url_api}/nifi-api/controller/cluster']
     for url in nifi_cluster_urls:
         response = requests.get(url)
         if response.status_code == 200:
@@ -91,7 +91,7 @@ def initial():
 
 
     ## Logging ##Number 2 
-    NIFI_API = f"http://{nifi_svc}:8080/nifi-api/flow/process-groups"
+    NIFI_API = f"{nifi_url_api}/nifi-api/flow/process-groups"
 
     nifi_error_count.clear()
     nifi_running_count.clear()
@@ -115,7 +115,7 @@ def initial():
             for i in list_processors:
                 all_processors.append(i['id'])
 
-            processer_url = f'http://{nifi_svc}:8080/nifi-api/processors'
+            processer_url = f'{nifi_url_api}/nifi-api/processors'
             for i in all_processors:
                 url = f'{processer_url}/{i}'
                 response = requests.get(url)
