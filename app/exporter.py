@@ -49,6 +49,35 @@ def initial():
     except:
         group_ids = []
 
+    def get_all_processor( id : str ):
+        all_process_element= []
+        ## 
+        url1 = f'{nifi_url_api}/nifi-api/process-groups/{id}/processors'
+        response = requests.get(url1) 
+        
+        try:
+            temp = response.json()
+            temp  = temp['processors'] 
+            for i in temp:
+                info_id = i["component"]["id"]
+                all_process_element.append( info_id )
+        except:
+            pass 
+        ## 
+        url2 = f'{nifi_url_api}/nifi-api/process-groups/{id}/process-groups'
+        response = requests.get(url2) 
+        try:
+            temp = response.json()
+            temp =  temp['processGroups']
+            for element in temp:
+                id_group  = element["component"]["id"]
+                all_process_element += get_all_processor( id_group )
+
+        except:
+            pass 
+        
+        return all_process_element 
+    
 
     ## Logging ##Number 1
     nifi_cluster_urls = [f'{nifi_url_api}/nifi-api/controller/cluster']
@@ -110,10 +139,7 @@ def initial():
             temp = response.json()
             nameGroup = temp['processGroupFlow']['breadcrumb']['breadcrumb']['name']
 
-            all_processors = []
-            list_processors  = temp['processGroupFlow']['flow']['processors']
-            for i in list_processors:
-                all_processors.append(i['id'])
+            all_processors = get_all_processor( id )
 
             processer_url = f'{nifi_url_api}/nifi-api/processors'
             for i in all_processors:
